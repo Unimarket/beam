@@ -17,9 +17,6 @@
  */
 package org.apache.beam.sdk.io.elasticsearch;
 
-import static org.apache.beam.vendor.guava.v26_0_jre.com.google.common.base.Preconditions.checkArgument;
-import static org.apache.beam.vendor.guava.v26_0_jre.com.google.common.base.Preconditions.checkState;
-
 import com.fasterxml.jackson.annotation.JsonInclude;
 import com.fasterxml.jackson.annotation.JsonProperty;
 import com.fasterxml.jackson.annotation.JsonPropertyOrder;
@@ -285,10 +282,6 @@ public class ElasticsearchIO {
      * @return the connection configuration object
      */
     public static ConnectionConfiguration create(String[] addresses, String index, String type) {
-      checkArgument(addresses != null, "addresses can not be null");
-      checkArgument(addresses.length > 0, "addresses can not be empty");
-      checkArgument(index != null, "index can not be null");
-      checkArgument(type != null, "type can not be null");
       return new AutoValue_ElasticsearchIO_ConnectionConfiguration.Builder()
           .setAddresses(Arrays.asList(addresses))
           .setIndex(index)
@@ -304,8 +297,6 @@ public class ElasticsearchIO {
      *     Elasticsearch.
      */
     public ConnectionConfiguration withUsername(String username) {
-      checkArgument(username != null, "username can not be null");
-      checkArgument(!username.isEmpty(), "username can not be empty");
       return builder().setUsername(username).build();
     }
 
@@ -317,8 +308,6 @@ public class ElasticsearchIO {
      *     Elasticsearch.
      */
     public ConnectionConfiguration withPassword(String password) {
-      checkArgument(password != null, "password can not be null");
-      checkArgument(!password.isEmpty(), "password can not be empty");
       return builder().setPassword(password).build();
     }
 
@@ -331,8 +320,6 @@ public class ElasticsearchIO {
      *     Elasticsearch.
      */
     public ConnectionConfiguration withKeystorePath(String keystorePath) {
-      checkArgument(keystorePath != null, "keystorePath can not be null");
-      checkArgument(!keystorePath.isEmpty(), "keystorePath can not be empty");
       return builder().setKeystorePath(keystorePath).build();
     }
 
@@ -345,7 +332,6 @@ public class ElasticsearchIO {
      *     Elasticsearch.
      */
     public ConnectionConfiguration withKeystorePassword(String keystorePassword) {
-      checkArgument(keystorePassword != null, "keystorePassword can not be null");
       return builder().setKeystorePassword(keystorePassword).build();
     }
 
@@ -359,7 +345,6 @@ public class ElasticsearchIO {
      *     Elasticsearch.
      */
     public ConnectionConfiguration withSocketAndRetryTimeout(Integer socketAndRetryTimeout) {
-      checkArgument(socketAndRetryTimeout != null, "socketAndRetryTimeout can not be null");
       return builder().setSocketAndRetryTimeout(socketAndRetryTimeout).build();
     }
 
@@ -372,7 +357,6 @@ public class ElasticsearchIO {
      *     Elasticsearch.
      */
     public ConnectionConfiguration withConnectTimeout(Integer connectTimeout) {
-      checkArgument(connectTimeout != null, "connectTimeout can not be null");
       return builder().setConnectTimeout(connectTimeout).build();
     }
 
@@ -488,7 +472,6 @@ public class ElasticsearchIO {
      * @return a {@link PTransform} reading data from Elasticsearch.
      */
     public Read withConnectionConfiguration(ConnectionConfiguration connectionConfiguration) {
-      checkArgument(connectionConfiguration != null, "connectionConfiguration can not be null");
       return builder().setConnectionConfiguration(connectionConfiguration).build();
     }
 
@@ -501,8 +484,6 @@ public class ElasticsearchIO {
      * @return a {@link PTransform} reading data from Elasticsearch.
      */
     public Read withQuery(String query) {
-      checkArgument(query != null, "query can not be null");
-      checkArgument(!query.isEmpty(), "query can not be empty");
       return withQuery(ValueProvider.StaticValueProvider.of(query));
     }
 
@@ -516,7 +497,6 @@ public class ElasticsearchIO {
      * @return a {@link PTransform} reading data from Elasticsearch.
      */
     public Read withQuery(ValueProvider<String> query) {
-      checkArgument(query != null, "query can not be null");
       return builder().setQuery(query).build();
     }
 
@@ -538,8 +518,6 @@ public class ElasticsearchIO {
      * @return a {@link PTransform} reading data from Elasticsearch.
      */
     public Read withScrollKeepalive(String scrollKeepalive) {
-      checkArgument(scrollKeepalive != null, "scrollKeepalive can not be null");
-      checkArgument(!"0m".equals(scrollKeepalive), "scrollKeepalive can not be 0m");
       return builder().setScrollKeepalive(scrollKeepalive).build();
     }
 
@@ -554,18 +532,12 @@ public class ElasticsearchIO {
      * @return a {@link PTransform} reading data from Elasticsearch.
      */
     public Read withBatchSize(long batchSize) {
-      checkArgument(
-          batchSize > 0 && batchSize <= MAX_BATCH_SIZE,
-          "batchSize must be > 0 and <= %s, but was: %s",
-          MAX_BATCH_SIZE,
-          batchSize);
       return builder().setBatchSize(batchSize).build();
     }
 
     @Override
     public PCollection<String> expand(PBegin input) {
       ConnectionConfiguration connectionConfiguration = getConnectionConfiguration();
-      checkState(connectionConfiguration != null, "withConnectionConfiguration() is required");
       return input.apply(
           org.apache.beam.sdk.io.Read.from(new BoundedElasticsearchSource(this, null, null, null)));
     }
@@ -622,6 +594,8 @@ public class ElasticsearchIO {
     @Override
     public List<? extends BoundedSource<String>> split(
         long desiredBundleSizeBytes, PipelineOptions options) throws Exception {
+      LOG.info("desiredBundleSizeBytes = " + desiredBundleSizeBytes);
+      LOG.info("call stack: ", new Throwable());
       ConnectionConfiguration connectionConfiguration = spec.getConnectionConfiguration();
       this.backendVersion = getBackendVersion(connectionConfiguration);
       List<BoundedElasticsearchSource> sources = new ArrayList<>();
@@ -644,11 +618,12 @@ public class ElasticsearchIO {
           String shardId = shardJson.getKey();
           sources.add(new BoundedElasticsearchSource(spec, shardId, null, null, backendVersion));
         }
-        checkArgument(!sources.isEmpty(), "No shard found");
       } else if (backendVersion == 5 || backendVersion == 6) {
         long indexSize = BoundedElasticsearchSource.estimateIndexSize(connectionConfiguration);
+        LOG.info("indexSize =  " + indexSize);
         float nbBundlesFloat = (float) indexSize / desiredBundleSizeBytes;
         int nbBundles = (int) Math.ceil(nbBundlesFloat);
+        LOG.info("nbBundles =  " + nbBundles);
         // ES slice api imposes that the number of slices is <= 1024 even if it can be overloaded
         if (nbBundles > 1024) {
           nbBundles = 1024;
@@ -887,10 +862,7 @@ public class ElasticsearchIO {
      * @return {@link RetryConfiguration} object with provided settings.
      */
     public static RetryConfiguration create(int maxAttempts, Duration maxDuration) {
-      checkArgument(maxAttempts > 0, "maxAttempts must be greater than 0");
-      checkArgument(
-          maxDuration != null && maxDuration.isLongerThan(Duration.ZERO),
-          "maxDuration must be greater than 0");
+
       return new AutoValue_ElasticsearchIO_RetryConfiguration.Builder()
           .setMaxAttempts(maxAttempts)
           .setMaxDuration(maxDuration)
@@ -901,7 +873,6 @@ public class ElasticsearchIO {
     // Exposed only to allow tests to easily simulate server errors
     @VisibleForTesting
     RetryConfiguration withRetryPredicate(RetryPredicate predicate) {
-      checkArgument(predicate != null, "predicate must be provided");
       return builder().setRetryPredicate(predicate).build();
     }
 
@@ -1018,7 +989,6 @@ public class ElasticsearchIO {
      * @return the {@link Write} with connection configuration set
      */
     public Write withConnectionConfiguration(ConnectionConfiguration connectionConfiguration) {
-      checkArgument(connectionConfiguration != null, "connectionConfiguration can not be null");
       return builder().setConnectionConfiguration(connectionConfiguration).build();
     }
 
@@ -1034,7 +1004,6 @@ public class ElasticsearchIO {
      * @return the {@link Write} with connection batch size set
      */
     public Write withMaxBatchSize(long batchSize) {
-      checkArgument(batchSize > 0, "batchSize must be > 0, but was %s", batchSize);
       return builder().setMaxBatchSize(batchSize).build();
     }
 
@@ -1050,7 +1019,6 @@ public class ElasticsearchIO {
      * @return the {@link Write} with connection batch size in bytes set
      */
     public Write withMaxBatchSizeBytes(long batchSizeBytes) {
-      checkArgument(batchSizeBytes > 0, "batchSizeBytes must be > 0, but was %s", batchSizeBytes);
       return builder().setMaxBatchSizeBytes(batchSizeBytes).build();
     }
 
@@ -1063,7 +1031,6 @@ public class ElasticsearchIO {
      * @return the {@link Write} with the function set
      */
     public Write withIdFn(FieldValueExtractFn idFn) {
-      checkArgument(idFn != null, "idFn must not be null");
       return builder().setIdFn(idFn).build();
     }
 
@@ -1076,7 +1043,6 @@ public class ElasticsearchIO {
      * @return the {@link Write} with the function set
      */
     public Write withIndexFn(FieldValueExtractFn indexFn) {
-      checkArgument(indexFn != null, "indexFn must not be null");
       return builder().setIndexFn(indexFn).build();
     }
 
@@ -1092,7 +1058,6 @@ public class ElasticsearchIO {
      * @return the {@link Write} with the function set
      */
     public Write withTypeFn(FieldValueExtractFn typeFn) {
-      checkArgument(typeFn != null, "typeFn must not be null");
       return builder().setTypeFn(typeFn).build();
     }
 
@@ -1130,14 +1095,12 @@ public class ElasticsearchIO {
      * @return the {@link Write} with retrying configured
      */
     public Write withRetryConfiguration(RetryConfiguration retryConfiguration) {
-      checkArgument(retryConfiguration != null, "retryConfiguration is required");
       return builder().setRetryConfiguration(retryConfiguration).build();
     }
 
     @Override
     public PDone expand(PCollection<String> input) {
       ConnectionConfiguration connectionConfiguration = getConnectionConfiguration();
-      checkState(connectionConfiguration != null, "withConnectionConfiguration() is required");
       input.apply(ParDo.of(new WriteFn(this)));
       return PDone.in(input.getPipeline());
     }
@@ -1349,12 +1312,6 @@ public class ElasticsearchIO {
       JsonNode jsonNode = parseResponse(response.getEntity());
       int backendVersion =
           Integer.parseInt(jsonNode.path("version").path("number").asText().substring(0, 1));
-      checkArgument(
-          (backendVersion == 2 || backendVersion == 5 || backendVersion == 6),
-          "The Elasticsearch version to connect to is %s.x. "
-              + "This version of the ElasticsearchIO is only compatible with "
-              + "Elasticsearch v6.x, v5.x and v2.x",
-          backendVersion);
       return backendVersion;
 
     } catch (IOException e) {
