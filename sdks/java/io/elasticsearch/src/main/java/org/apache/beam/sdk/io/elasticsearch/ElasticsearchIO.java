@@ -625,8 +625,8 @@ public class ElasticsearchIO {
         int nbBundles = (int) Math.ceil(nbBundlesFloat);
         LOG.info("nbBundles =  " + nbBundles);
         // ES slice api imposes that the number of slices is <= 1024 even if it can be overloaded
-        if (nbBundles > 1024) {
-          nbBundles = 1024;
+        if (nbBundles > 10) {
+          nbBundles = 10;
         }
         // split the index into nbBundles chunks of desiredBundleSizeBytes by creating
         // nbBundles sources each reading a slice of the index
