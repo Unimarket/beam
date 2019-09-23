@@ -75,6 +75,7 @@ import org.apache.http.impl.client.BasicCredentialsProvider;
 import org.apache.http.nio.conn.ssl.SSLIOSessionStrategy;
 import org.apache.http.nio.entity.NStringEntity;
 import org.apache.http.ssl.SSLContexts;
+import org.elasticsearch.client.Request;
 import org.elasticsearch.client.Response;
 import org.elasticsearch.client.RestClient;
 import org.elasticsearch.client.RestClientBuilder;
@@ -537,7 +538,6 @@ public class ElasticsearchIO {
 
     @Override
     public PCollection<String> expand(PBegin input) {
-      ConnectionConfiguration connectionConfiguration = getConnectionConfiguration();
       return input.apply(
           org.apache.beam.sdk.io.Read.from(new BoundedElasticsearchSource(this, null, null, null)));
     }
@@ -619,7 +619,7 @@ public class ElasticsearchIO {
           sources.add(new BoundedElasticsearchSource(spec, shardId, null, null, backendVersion));
         }
       } else if (backendVersion == 5 || backendVersion == 6) {
-        long indexSize = BoundedElasticsearchSource.estimateIndexSize(connectionConfiguration);
+        long indexSize = getEstimatedSizeBytes(options);
         LOG.info("indexSize =  " + indexSize);
         float nbBundlesFloat = (float) indexSize / desiredBundleSizeBytes;
         int nbBundles = (int) Math.ceil(nbBundlesFloat);
@@ -642,7 +642,27 @@ public class ElasticsearchIO {
 
     @Override
     public long getEstimatedSizeBytes(PipelineOptions options) throws IOException {
-      return estimateIndexSize(spec.getConnectionConfiguration());
+      LOG.info("getEstimatedSizeBytes call stack: ", new Throwable());
+      LOG.info("getEstimatedSizeBytes: options {}, {}", options.getClass(), options);
+      String query = spec.getQuery() != null ? spec.getQuery().get() : null;
+      if (query == null || query.isEmpty()) {
+        query = "{\"query\": { \"match_all\": {} }}";
+      }
+      LOG.info("getEstimatedSizeBytes: query " + query);
+      String endPoint =
+          String.format(
+              "/%s/%s/_count",
+              spec.getConnectionConfiguration().getIndex(),
+              spec.getConnectionConfiguration().getType());
+      try (RestClient restClient = spec.getConnectionConfiguration().createClient()) {
+        HttpEntity queryEntity = new NStringEntity(query, ContentType.APPLICATION_JSON);
+        Request request = new Request("GET", endPoint);
+        request.setEntity(queryEntity);
+        JsonNode searchResult = parseResponse(restClient.performRequest(request).getEntity());
+        long productCount = searchResult.path("count").asLong();
+        LOG.info("getEstimatedSizeBytes: total product count " + productCount);
+        return (productCount + 1) * 1024;
+      }
     }
 
     @VisibleForTesting
@@ -1100,7 +1120,6 @@ public class ElasticsearchIO {
 
     @Override
     public PDone expand(PCollection<String> input) {
-      ConnectionConfiguration connectionConfiguration = getConnectionConfiguration();
       input.apply(ParDo.of(new WriteFn(this)));
       return PDone.in(input.getPipeline());
     }
