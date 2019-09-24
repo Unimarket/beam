@@ -694,16 +694,15 @@ public class ElasticsearchIO {
 
       long totalCount = indexStats.path("docs").path("count").asLong();
       LOG.info("estimate source byte size: total document count " + totalCount);
+      if (totalCount == 0) { // The min size is 1, because DirectRunner does not like 0
+        estimatedByteSize = 1L;
+        return estimatedByteSize;
+      }
+
       String endPoint =
           String.format(
               "/%s/%s/_count",
               connectionConfiguration.getIndex(), connectionConfiguration.getType());
-
-      // The min size is 1, because DirectRunner does not like 0
-      if (totalCount == 0) {
-        estimatedByteSize = 1L;
-        return estimatedByteSize;
-      }
       try (RestClient restClient = connectionConfiguration.createClient()) {
         long count = queryCount(restClient, endPoint, query);
         LOG.info("estimate source byte size: query document count " + count);
