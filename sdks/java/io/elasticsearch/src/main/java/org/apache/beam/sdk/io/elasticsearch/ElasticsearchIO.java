@@ -652,7 +652,7 @@ public class ElasticsearchIO {
         }
         checkArgument(!sources.isEmpty(), "No shard found");
       } else if (backendVersion == 5 || backendVersion == 6) {
-        long indexSize = BoundedElasticsearchSource.estimateIndexSize(connectionConfiguration);
+        long indexSize = getEstimatedSizeBytes(options);
         float nbBundlesFloat = (float) indexSize / desiredBundleSizeBytes;
         int nbBundles = (int) Math.ceil(nbBundlesFloat);
         // ES slice api imposes that the number of slices is <= 1024 even if it can be overloaded
@@ -679,34 +679,42 @@ public class ElasticsearchIO {
       if (estimatedByteSize != null) {
         return estimatedByteSize;
       }
-      long indexSize = estimateIndexSize(spec.getConnectionConfiguration());
+      final ConnectionConfiguration connectionConfiguration = spec.getConnectionConfiguration();
+      JsonNode statsJson = getStats(connectionConfiguration, false);
+      JsonNode indexStats =
+          statsJson.path("indices").path(connectionConfiguration.getIndex()).path("primaries");
+      long indexSize = indexStats.path("store").path("size_in_bytes").asLong();
+      LOG.info("estimate source byte size: total index size " + indexSize);
+
       String query = spec.getQuery() != null ? spec.getQuery().get() : null;
-      if (query == null || query.isEmpty()) {
+      if (query == null || query.isEmpty()) { // return index size if no query
         estimatedByteSize = indexSize;
         return estimatedByteSize;
       }
+
+      long totalCount = indexStats.path("docs").path("count").asLong();
+      LOG.info("estimate source byte size: total document count " + totalCount);
       String endPoint =
           String.format(
               "/%s/%s/_count",
-              spec.getConnectionConfiguration().getIndex(),
-              spec.getConnectionConfiguration().getType());
-      try (RestClient restClient = spec.getConnectionConfiguration().createClient()) {
-        long totalCount = queryCount(restClient, endPoint, "{\"query\": { \"match_all\": {} }}");
-        LOG.info("estimate source byte size: total document count " + totalCount);
-        // min size is 1L, because DirectRunner does not support 0
-        if (totalCount == 0) {
+              connectionConfiguration.getIndex(), connectionConfiguration.getType());
+
+      // The min size is 1, because DirectRunner does not like 0
+      if (totalCount == 0) {
+        estimatedByteSize = 1L;
+        return estimatedByteSize;
+      }
+      try (RestClient restClient = connectionConfiguration.createClient()) {
+        long count = queryCount(restClient, endPoint, query);
+        LOG.info("estimate source byte size: query document count " + count);
+        if (count == 0) {
           estimatedByteSize = 1L;
         } else {
-          long count = queryCount(restClient, endPoint, query);
-          LOG.info("estimate source byte size: query document count " + count);
-          if (count == 0) {
-            estimatedByteSize = 1L;
-          } else {
-            estimatedByteSize = indexSize / totalCount * count;
-          }
+          // We estimate the average byte size for each document is (index/totalCount)
+          // and then multiply the document count in the index
+          estimatedByteSize = (indexSize / totalCount) * count;
         }
       }
-
       return estimatedByteSize;
     }
 
