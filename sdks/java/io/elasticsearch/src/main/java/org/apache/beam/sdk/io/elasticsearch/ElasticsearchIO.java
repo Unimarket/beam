@@ -228,6 +228,14 @@ public class ElasticsearchIO {
     }
   }
 
+  private static String getElasticEndpointPrefix(String index, String type) {
+    StringBuilder sb = new StringBuilder("/").append(index);
+    if (type != null && type.length() > 0) {
+      sb.append("/").append(type);
+    }
+    return sb.toString();
+  }
+
   /** A POJO describing a connection configuration to Elasticsearch. */
   @AutoValue
   public abstract static class ConnectionConfiguration implements Serializable {
@@ -248,6 +256,7 @@ public class ElasticsearchIO {
 
     public abstract String getIndex();
 
+    @Nullable
     public abstract String getType();
 
     @Nullable
@@ -297,7 +306,6 @@ public class ElasticsearchIO {
       checkArgument(addresses != null, "addresses can not be null");
       checkArgument(addresses.length > 0, "addresses can not be empty");
       checkArgument(index != null, "index can not be null");
-      checkArgument(type != null, "type can not be null");
       return new AutoValue_ElasticsearchIO_ConnectionConfiguration.Builder()
           .setAddresses(Arrays.asList(addresses))
           .setIndex(index)
@@ -401,7 +409,9 @@ public class ElasticsearchIO {
     private void populateDisplayData(DisplayData.Builder builder) {
       builder.add(DisplayData.item("address", getAddresses().toString()));
       builder.add(DisplayData.item("index", getIndex()));
-      builder.add(DisplayData.item("type", getType()));
+      if (getType() != null) {
+        builder.add(DisplayData.item("type", getType()));
+      }
       builder.addIfNotNull(DisplayData.item("username", getUsername()));
       builder.addIfNotNull(DisplayData.item("keystore.path", getKeystorePath()));
       builder.addIfNotNull(DisplayData.item("socketTimeout", getSocketTimeout()));
@@ -717,9 +727,9 @@ public class ElasticsearchIO {
       }
 
       String endPoint =
-          String.format(
-              "/%s/%s/_count",
-              connectionConfiguration.getIndex(), connectionConfiguration.getType());
+          getElasticEndpointPrefix(
+                  connectionConfiguration.getIndex(), connectionConfiguration.getType())
+              + "/_count";
       try (RestClient restClient = connectionConfiguration.createClient()) {
         long count = queryCount(restClient, endPoint, query);
         LOG.debug("estimate source byte size: query document count " + count);
@@ -827,10 +837,10 @@ public class ElasticsearchIO {
         query = query.replaceFirst("\\{", "{" + sliceQuery + ",");
       }
       String endPoint =
-          String.format(
-              "/%s/%s/_search",
-              source.spec.getConnectionConfiguration().getIndex(),
-              source.spec.getConnectionConfiguration().getType());
+          getElasticEndpointPrefix(
+                  source.spec.getConnectionConfiguration().getIndex(),
+                  source.spec.getConnectionConfiguration().getType())
+              + "/_search";
       Map<String, String> params = new HashMap<>();
       params.put("scroll", source.spec.getScrollKeepalive());
       if (source.backendVersion == 2) {
@@ -1401,10 +1411,10 @@ public class ElasticsearchIO {
         // document meta (i.e. using ElasticsearchIO$Write#withIndexFn and
         // ElasticsearchIO$Write#withTypeFn options)
         String endPoint =
-            String.format(
-                "/%s/%s/_bulk",
-                spec.getConnectionConfiguration().getIndex(),
-                spec.getConnectionConfiguration().getType());
+            getElasticEndpointPrefix(
+                    spec.getConnectionConfiguration().getIndex(),
+                    spec.getConnectionConfiguration().getType())
+                + "/_bulk";
         HttpEntity requestBody =
             new NStringEntity(bulkRequest.toString(), ContentType.APPLICATION_JSON);
         Request request = new Request("POST", endPoint);
